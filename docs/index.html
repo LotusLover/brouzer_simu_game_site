@@ -4,9 +4,15 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Unity Web Player | brouzer_simu_game</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    
+    <!-- Firebase v9 compat CDN -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
   </head>
   <body style="text-align: center; padding: 0; border: 0; margin: 0;">
-    <canvas id="unity-canvas" width=1172 height=2576 tabindex="-1" style="width: 1172px; height: 2576px; background: #231F20"></canvas>
+    <canvas id="unity-canvas" width=1172 height=2532 tabindex="-1" style="width: 1172px; height: 2532px; background: #231F20"></canvas>
     <script src="Build/docs.loader.js"></script>
     <script>
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
@@ -23,9 +29,15 @@
 
         document.body.style.textAlign = "left";
       }
-
+      function unityShowBanner(msg, type) {
+  // type: "error", "warning", "info"
+  if (type === "error") {
+    alert(msg);
+  } else {
+    console.log(msg);
+  }
+}
       createUnityInstance(document.querySelector("#unity-canvas"), {
-        arguments: [],
         dataUrl: "Build/docs.data",
         frameworkUrl: "Build/docs.framework.js",
         codeUrl: "Build/docs.wasm",
@@ -33,9 +45,31 @@
         companyName: "DefaultCompany",
         productName: "brouzer_simu_game",
         productVersion: "1.0",
-        // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
-        // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
+        showBanner: unityShowBanner,
+      }).then((unityInstance) => {
+        console.log("Unity instance created successfully");
+        // Firebase initialization will happen automatically via Firebase.js
+      }).catch((message) => {
+        console.error("Unity instance creation failed:", message);
       });
     </script>
+
+    <script>
+      // Initialize Firebase
+      // Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyD_F1GFhvlm384MCHPGCwxWmBsYMMb-1KY",
+    authDomain: "simumobilekaede-s.firebaseapp.com",
+    databaseURL: "https://simumobilekaede-s-default-rtdb.firebaseio.com",
+    projectId: "simumobilekaede-s",
+    storageBucket: "simumobilekaede-s.firebasestorage.app",
+    messagingSenderId: "529903658864",
+    appId: "1:529903658864:web:9eb87e01b02078438991b5",
+    measurementId: "G-C6EQT998TB"
+  };
+      firebase.initializeApp(firebaseConfig);
+      const analytics = firebase.analytics();
+    </script>
+
   </body>
 </html>
