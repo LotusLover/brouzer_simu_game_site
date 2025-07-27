@@ -1283,10 +1283,10 @@ function dbg(text) {
 // === Body ===
 
 var ASM_CONSTS = {
-  8244112: () => { Module['emscripten_get_now_backup'] = performance.now; },  
- 8244167: ($0) => { performance.now = function() { return $0; }; },  
+  8244160: () => { Module['emscripten_get_now_backup'] = performance.now; },  
  8244215: ($0) => { performance.now = function() { return $0; }; },  
- 8244263: () => { performance.now = Module['emscripten_get_now_backup']; }
+ 8244263: ($0) => { performance.now = function() { return $0; }; },  
+ 8244311: () => { performance.now = Module['emscripten_get_now_backup']; }
 };
 
 
@@ -7639,13 +7639,50 @@ var ASM_CONSTS = {
   		Module.WebPlayer.PlayerIsInitialized();
   	}
 
+  function _ReadFromFirebase(pathPtr) {
+      try {
+        const path = UTF8ToString(pathPtr);
+        console.log("ReadFromFirebase called", path);
+        
+        // Check if Firebase database is available
+        if (typeof firebase !== 'undefined' && firebase.database) {
+          firebase.database().ref(path).once('value').then(function(snapshot) {
+            var value = snapshot.val();
+            console.log("Firebase read successful:", value);
+            
+            // Send result back to Unity
+            if (typeof SendMessage !== 'undefined') {
+              SendMessage('FireBaseWriterObj', 'OnFirebaseRead', value || '');
+            } else {
+              console.error("SendMessage function not available");
+            }
+          }).catch(function(error) {
+            console.error("Firebase read error:", error);
+            if (typeof SendMessage !== 'undefined') {
+              SendMessage('FireBaseWriterObj', 'OnFirebaseError', error.message);
+            }
+          });
+        } else {
+          console.error("Firebase database not available");
+        }
+      } catch (e) {
+        console.error("ReadFromFirebase error:", e);
+      }
+    }
+
   function _WriteToFirebase(pathPtr, valuePtr) {
       try {
         const path = UTF8ToString(pathPtr);
         const value = UTF8ToString(valuePtr);
         console.log("WriteToFirebase called", path, value);
-        // Firebaseの書き込み
-        firebase.database().ref(path).set(value);
+        
+        // Check if Firebase database is available
+        if (typeof firebase !== 'undefined' && firebase.database) {
+          firebase.database().ref(path).set(value);
+          console.log("Firebase write successful");
+        } else {
+          console.error("Firebase database not available");
+        }
       } catch (e) {
         console.error("WriteToFirebase error:", e);
       }
@@ -16539,6 +16576,7 @@ var wasmImports = {
   "JS_WebGPU_SetCommandEncoder": _JS_WebGPU_SetCommandEncoder,
   "JS_WebGPU_Setup": _JS_WebGPU_Setup,
   "JS_WebPlayer_FinishInitialization": _JS_WebPlayer_FinishInitialization,
+  "ReadFromFirebase": _ReadFromFirebase,
   "WriteToFirebase": _WriteToFirebase,
   "__assert_fail": ___assert_fail,
   "__cxa_begin_catch": ___cxa_begin_catch,
