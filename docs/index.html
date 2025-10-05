@@ -1,24 +1,296 @@
 <!DOCTYPE html>
-<html lang="en-us">
+<html lang="ja">
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity Web Player | brouzer_simu_game</title>
+    <title>WW2 RTS - 学校祭バトル | brouzer_simu_game</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
-    
-    <!-- Firebase v9 compat CDN -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+    <!-- Firebase v9 Modular SDK -->
+    <script type="module">
+      // Import Firebase v9 modules
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
+      import { getDatabase, ref, set, get, onValue, off, push } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js';
+      import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js';
+      import { getAnalytics } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics.js';
+
+      // Firebase configuration - simumobilekaede-s project
+      const firebaseConfig = {
+        apiKey: "AIzaSyD_F1GFhvlm384MCHPGCwxWmBsYMMb-1KY",
+        authDomain: "simumobilekaede-s.firebaseapp.com",
+        databaseURL: "https://simumobilekaede-s-default-rtdb.firebaseio.com",
+        projectId: "simumobilekaede-s",
+        storageBucket: "simumobilekaede-s.firebasestorage.app",
+        messagingSenderId: "529903658864",
+        appId: "1:529903658864:web:9eb87e01b02078438991b5",
+        measurementId: "G-C6EQT998TB"
+      };
+
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const database = getDatabase(app);
+      const auth = getAuth(app);
+      const analytics = getAnalytics(app);
+
+      console.log("🔥 Firebase v9 initialized for RTS Game");
+
+      // Unity WebGL JavaScript Functions for RTS
+      // These functions will be called from Unity C# scripts
+
+      // 🔥 Authentication Functions
+      window.signInAnonymously = async function() {
+        try {
+          const result = await signInAnonymously(auth);
+          console.log("✅ Anonymous sign-in successful:", result.user.uid);
+          return result.user.uid;
+        } catch (error) {
+          console.error("❌ Sign-in error:", error);
+          throw error;
+        }
+      };
+
+      window.isUserAuthenticated = function() {
+        return auth.currentUser !== null;
+      };
+
+      // 🎮 User Management Functions
+      window.registerUserName = async function(userName) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const userRef = ref(database, `users/${auth.currentUser.uid}`);
+        await set(userRef, {
+          name: userName,
+          lastActive: Date.now(),
+          gamesPlayed: 0,
+          wins: 0,
+          losses: 0
+        });
+        console.log("✅ User registered:", userName);
+      };
+
+      window.getUserInfo = async function() {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const userRef = ref(database, `users/${auth.currentUser.uid}`);
+        const snapshot = await get(userRef);
+        return snapshot.val();
+      };
+
+      window.updateUserName = async function(newName) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const userRef = ref(database, `users/${auth.currentUser.uid}/name`);
+        await set(userRef, newName);
+        console.log("✅ Username updated:", newName);
+      };
+
+      // 🏰 RTS Game Room Functions
+      window.createGameRoom = async function(gameName) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const gameId = Math.random().toString(36).substr(2, 8).toUpperCase();
+        const gameRef = ref(database, `rts_games/${gameId}`);
+        
+        const gameData = {
+          name: gameName || `WW2 Battle ${gameId}`,
+          creator: auth.currentUser.uid,
+          players: {
+            [auth.currentUser.uid]: {
+              name: 'Player',
+              team: 1,
+              joined: Date.now(),
+              ready: false
+            }
+          },
+          teams: {
+            team1: { players: [auth.currentUser.uid], color: "#FF0000" },
+            team2: { players: [], color: "#0000FF" }
+          },
+          state: 'waiting', // waiting, starting, playing, finished
+          maxPlayers: 32,
+          currentPlayerCount: 1,
+          gameMode: '16vs16',
+          mapSize: { width: 32, height: 32 },
+          created: Date.now(),
+          lastUpdated: Date.now()
+        };
+
+        await set(gameRef, gameData);
+        console.log(`🎮 Game room created: ${gameId}`);
+        return gameId;
+      };
+
+      window.joinGameRoom = async function(gameId) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const gameRef = ref(database, `rts_games/${gameId}`);
+        const snapshot = await get(gameRef);
+        
+        if (!snapshot.exists()) {
+          throw new Error(`Game ${gameId} not found`);
+        }
+
+        const gameData = snapshot.val();
+        if (gameData.currentPlayerCount >= gameData.maxPlayers) {
+          throw new Error('Game is full');
+        }
+
+        // Auto-assign to team with fewer players
+        const team1Count = gameData.teams.team1.players.length;
+        const team2Count = gameData.teams.team2.players.length;
+        const assignedTeam = team1Count <= team2Count ? 1 : 2;
+
+        // Add player to game
+        const playerRef = ref(database, `rts_games/${gameId}/players/${auth.currentUser.uid}`);
+        await set(playerRef, {
+          name: 'Player',
+          team: assignedTeam,
+          joined: Date.now(),
+          ready: false
+        });
+
+        // Update team assignment
+        const teamRef = ref(database, `rts_games/${gameId}/teams/team${assignedTeam}/players`);
+        const teamSnapshot = await get(teamRef);
+        const currentTeamPlayers = teamSnapshot.val() || [];
+        currentTeamPlayers.push(auth.currentUser.uid);
+        await set(teamRef, currentTeamPlayers);
+
+        // Update player count
+        const countRef = ref(database, `rts_games/${gameId}/currentPlayerCount`);
+        await set(countRef, gameData.currentPlayerCount + 1);
+
+        console.log(`✅ Joined game ${gameId} on team ${assignedTeam}`);
+        return { gameId, team: assignedTeam };
+      };
+
+      // ⚔️ RTS Game Action Functions
+      window.sendAction = async function(gameId, actionData) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const actionRef = push(ref(database, `rts_games/${gameId}/actions`));
+        await set(actionRef, {
+          player: auth.currentUser.uid,
+          action: actionData,
+          timestamp: Date.now()
+        });
+        console.log("⚔️ Action sent:", actionData.type);
+      };
+
+      window.placeUnit = async function(gameId, unitData) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const unitRef = ref(database, `rts_games/${gameId}/units/${unitData.id}`);
+        await set(unitRef, {
+          ...unitData,
+          owner: auth.currentUser.uid,
+          placed: Date.now()
+        });
+        console.log("🪖 Unit placed:", unitData.type);
+      };
+
+      window.moveUnit = async function(gameId, unitId, newPosition) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const unitRef = ref(database, `rts_games/${gameId}/units/${unitId}`);
+        const snapshot = await get(unitRef);
+        
+        if (snapshot.exists() && snapshot.val().owner === auth.currentUser.uid) {
+          await set(ref(database, `rts_games/${gameId}/units/${unitId}/position`), newPosition);
+          await set(ref(database, `rts_games/${gameId}/units/${unitId}/lastMoved`), Date.now());
+          console.log("🚶 Unit moved:", unitId);
+        }
+      };
+
+      // 📊 Real-time Game State Monitoring
+      window.startGameListener = function(gameId, callbackName) {
+        if (!auth.currentUser) return;
+        
+        const gameRef = ref(database, `rts_games/${gameId}`);
+        const callback = (snapshot) => {
+          const gameData = snapshot.val();
+          if (gameData && window.unityInstance) {
+            // Send game data to Unity
+            window.unityInstance.SendMessage('GameManager', callbackName, JSON.stringify(gameData));
+          }
+        };
+        
+        onValue(gameRef, callback);
+        
+        // Store reference for cleanup
+        window.gameListener = { ref: gameRef, callback: callback };
+        console.log(`👀 Started monitoring game: ${gameId}`);
+      };
+
+      window.stopGameListener = function() {
+        if (window.gameListener) {
+          off(window.gameListener.ref, 'value', window.gameListener.callback);
+          window.gameListener = null;
+          console.log("⏹️ Stopped game monitoring");
+        }
+      };
+
+      // 🏆 Game Management Functions
+      window.startGame = async function(gameId) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const stateRef = ref(database, `rts_games/${gameId}/state`);
+        await set(stateRef, 'playing');
+        
+        const startTimeRef = ref(database, `rts_games/${gameId}/gameStarted`);
+        await set(startTimeRef, Date.now());
+        
+        console.log(`🚀 Game ${gameId} started!`);
+      };
+
+      window.endGame = async function(gameId, winningTeam) {
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        const gameRef = ref(database, `rts_games/${gameId}`);
+        await set(ref(database, `rts_games/${gameId}/state`), 'finished');
+        await set(ref(database, `rts_games/${gameId}/winner`), winningTeam);
+        await set(ref(database, `rts_games/${gameId}/gameEnded`), Date.now());
+        
+        console.log(`🏆 Game ${gameId} ended! Winner: Team ${winningTeam}`);
+      };
+
+      // Unity Ready Callback
+      window.unityInstanceReady = function(unityInstance) {
+        window.unityInstance = unityInstance;
+        console.log('🎮 Unity instance ready for Firebase RTS communication');
+        
+        // Auto sign-in when Unity is ready
+        window.signInAnonymously().then(uid => {
+          console.log(`🔐 Auto-signed in as: ${uid}`);
+        }).catch(error => {
+          console.error("Auto sign-in failed:", error);
+        });
+      };
+
+      // Global error handler
+      window.addEventListener('error', function(e) {
+        console.error('🚨 Global error:', e.error);
+      });
+
+      console.log("🎯 Firebase RTS WebGL Template loaded successfully!");
+    </script>
   </head>
-  <body style="text-align: center; padding: 0; border: 0; margin: 0;">
-    <canvas id="unity-canvas" width=1172 height=2532 tabindex="-1" style="width: 1172px; height: 2532px; background: #231F20"></canvas>
-    <script src="Build/docs.loader.js"></script>
+  
+  <body style="text-align: center; padding: 0; border: 0; margin: 0; background: #1a1a1a; color: white;">
+    <div id="loading" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000;">
+      <h1>🎖️ WW2 RTS - 学校祭バトル 🎖️</h1>
+      <p>16vs16 リアルタイム戦略ゲーム</p>
+      <div id="loadingProgress">ゲーム読み込み中...</div>
+    </div>
+    
+    <canvas id="unity-canvas" width=1920 height=1080 tabindex="-1" 
+            style="width: 1920px; height: 1080px; background: #231F20; display: none;"></canvas>
+    
+    <script src="Build/e306689f10a7ab3bfa7e9d3e539f4eca.loader.js"></script>
     <script>
+      // Mobile device optimization
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
         var meta = document.createElement('meta');
         meta.name = 'viewport';
         meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
@@ -28,50 +300,45 @@
         canvas.style.width = "100%";
         canvas.style.height = "100%";
         canvas.style.position = "fixed";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
 
         document.body.style.textAlign = "left";
       }
+
       function unityShowBanner(msg, type) {
-  // type: "error", "warning", "info"
-  if (type === "error") {
-    alert(msg);
-  } else {
-    console.log(msg);
-  }
-}
+        if (type === "error") {
+          alert(`🚨 Error: ${msg}`);
+        } else if (type === "warning") {
+          console.warn(`⚠️ Warning: ${msg}`);
+        } else {
+          console.log(`ℹ️ Info: ${msg}`);
+        }
+      }
+
+      // Create Unity instance
       createUnityInstance(document.querySelector("#unity-canvas"), {
-        dataUrl: "Build/docs.data",
-        frameworkUrl: "Build/docs.framework.js",
-        codeUrl: "Build/docs.wasm",
+        dataUrl: "Build/1dabdd2f8f6831ab08fd978598c6faec.data.unityweb",
+        frameworkUrl: "Build/0df7a8811d55c983f9f98c44368ea046.framework.js.unityweb",
+        codeUrl: "Build/cbbcb1aa895b264c9f2a2a0603f13ed5.wasm.unityweb",
         streamingAssetsUrl: "StreamingAssets",
-        companyName: "DefaultCompany",
+        companyName: "Kaede_Shirazome",
         productName: "brouzer_simu_game",
         productVersion: "1.0",
         showBanner: unityShowBanner,
       }).then((unityInstance) => {
-        console.log("Unity instance created successfully");
-        // Firebase initialization will happen automatically via Firebase.js
+        // Hide loading screen
+        document.querySelector("#loading").style.display = "none";
+        document.querySelector("#unity-canvas").style.display = "block";
+        
+        // Initialize Unity-Firebase communication
+        window.unityInstanceReady(unityInstance);
+        
+        console.log("✅ Unity WebGL RTS instance created successfully");
       }).catch((message) => {
+        document.querySelector("#loadingProgress").innerHTML = `❌ 読み込みエラー: ${message}`;
         console.error("Unity instance creation failed:", message);
       });
     </script>
-
-    <script>
-      // Initialize Firebase
-      // Firebase configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyD_F1GFhvlm384MCHPGCwxWmBsYMMb-1KY",
-    authDomain: "simumobilekaede-s.firebaseapp.com",
-    databaseURL: "https://simumobilekaede-s-default-rtdb.firebaseio.com",
-    projectId: "simumobilekaede-s",
-    storageBucket: "simumobilekaede-s.firebasestorage.app",
-    messagingSenderId: "529903658864",
-    appId: "1:529903658864:web:9eb87e01b02078438991b5",
-    measurementId: "G-C6EQT998TB"
-  };
-      firebase.initializeApp(firebaseConfig);
-      const analytics = firebase.analytics();
-    </script>
-
   </body>
 </html>
