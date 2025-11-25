@@ -2085,13 +2085,13 @@ var tempI64;
 // === Body ===
 
 var ASM_CONSTS = {
-  5276992: function() {return Module.webglContextAttributes.premultipliedAlpha;},  
- 5277053: function() {return Module.webglContextAttributes.preserveDrawingBuffer;},  
- 5277117: function() {return Module.webglContextAttributes.powerPreference;},  
- 5277175: function() {Module['emscripten_get_now_backup'] = performance.now;},  
- 5277230: function($0) {performance.now = function() { return $0; };},  
- 5277278: function($0) {performance.now = function() { return $0; };},  
- 5277326: function() {performance.now = Module['emscripten_get_now_backup'];}
+  5277008: function() {return Module.webglContextAttributes.premultipliedAlpha;},  
+ 5277069: function() {return Module.webglContextAttributes.preserveDrawingBuffer;},  
+ 5277133: function() {return Module.webglContextAttributes.powerPreference;},  
+ 5277191: function() {Module['emscripten_get_now_backup'] = performance.now;},  
+ 5277246: function($0) {performance.now = function() { return $0; };},  
+ 5277294: function($0) {performance.now = function() { return $0; };},  
+ 5277342: function() {performance.now = Module['emscripten_get_now_backup'];}
 };
 
 
@@ -5045,10 +5045,36 @@ var ASM_CONSTS = {
                                       if (hostResult && hostResult.committed) {
                                           console.log('[RequestPlayerID] Successfully became host:', assignedID);
                                           hostRef.onDisconnect().remove();
-                                          if (window.hostHeartbeatInterval) clearInterval(window.hostHeartbeatInterval);
-                                          window.hostHeartbeatInterval = setInterval(function() {
-                                              hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
-                                          }, 3000);
+                                          
+                                          // ★修正: 既存のハートビートを停止
+                                          if (window.hostHeartbeatInterval) {
+                                              clearInterval(window.hostHeartbeatInterval);
+                                              window.hostHeartbeatInterval = null;
+                                          }
+                                          
+                                          // ★修正: ハートビート開始前にデータベースを再確認
+                                          hostRef.once('value').then(function(verifySnapshot) {
+                                              const verifiedHost = verifySnapshot.val();
+                                              if (verifiedHost && verifiedHost.playerNumber === assignedID) {
+                                                  console.log('[RequestPlayerID] Host verified, starting heartbeat');
+                                                  window.hostHeartbeatInterval = setInterval(function() {
+                                                      hostRef.once('value').then(function(hbSnapshot) {
+                                                          const currentHost = hbSnapshot.val();
+                                                          if (currentHost && currentHost.playerNumber === assignedID) {
+                                                              hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
+                                                          } else {
+                                                              console.warn('[RequestPlayerID] No longer host, stopping heartbeat');
+                                                              if (window.hostHeartbeatInterval) {
+                                                                  clearInterval(window.hostHeartbeatInterval);
+                                                                  window.hostHeartbeatInterval = null;
+                                                              }
+                                                          }
+                                                      });
+                                                  }, 3000);
+                                              } else {
+                                                  console.warn('[RequestPlayerID] Host verification failed');
+                                              }
+                                          });
   
                                           const target2 = window.unityFirebaseCallbackObjectName || 'NetworkManager';
                                           try { SendMessage(target2, 'OnHostStatusReceived', JSON.stringify({ isHost: true, hostPlayerNumber: assignedID })); } catch (e) { }
@@ -5143,8 +5169,12 @@ var ASM_CONSTS = {
                   const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
                   
                   if (host === null) {
-                      // ホストが消えた → 再選出を試みる
-                      console.log("[StartHostMonitoring] Host disappeared, triggering re-election");
+                      // ホストが消えた → ハートビートも停止
+                      console.log("[StartHostMonitoring] Host disappeared, stopping heartbeat and triggering re-election");
+                      if (window.hostHeartbeatInterval) {
+                          clearInterval(window.hostHeartbeatInterval);
+                          window.hostHeartbeatInterval = null;
+                      }
                       SendMessage(target, 'OnHostDisconnected', '');
                   } else {
                       console.log("[StartHostMonitoring] Host detected:", host.playerNumber);
@@ -5280,12 +5310,36 @@ var ASM_CONSTS = {
                       
                       hostRef.onDisconnect().remove();
                       
+                      // ★修正: 既存のハートビートを停止
                       if (window.hostHeartbeatInterval) {
                           clearInterval(window.hostHeartbeatInterval);
+                          window.hostHeartbeatInterval = null;
                       }
-                      window.hostHeartbeatInterval = setInterval(function() {
-                          hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
-                      }, 3000);
+                      
+                      // ★修正: ハートビート開始前にデータベースを再確認
+                      hostRef.once('value').then(function(verifySnapshot) {
+                          const verifiedHost = verifySnapshot.val();
+                          if (verifiedHost && verifiedHost.playerNumber === playerNumber) {
+                              console.log("✅ [TryBecomeHost] Host verified, starting heartbeat");
+                              window.hostHeartbeatInterval = setInterval(function() {
+                                  // ★修正: ハートビート前にホスト状態を確認
+                                  hostRef.once('value').then(function(hbSnapshot) {
+                                      const currentHost = hbSnapshot.val();
+                                      if (currentHost && currentHost.playerNumber === playerNumber) {
+                                          hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
+                                      } else {
+                                          console.warn("⚠️ [Heartbeat] No longer host, stopping heartbeat");
+                                          if (window.hostHeartbeatInterval) {
+                                              clearInterval(window.hostHeartbeatInterval);
+                                              window.hostHeartbeatInterval = null;
+                                          }
+                                      }
+                                  });
+                              }, 3000);
+                          } else {
+                              console.warn("⚠️ [TryBecomeHost] Host verification failed, not starting heartbeat");
+                          }
+                      });
                       
                       const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
                       SendMessage(target, 'OnHostStatusReceived', JSON.stringify({
