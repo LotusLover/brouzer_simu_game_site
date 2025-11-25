@@ -2085,13 +2085,13 @@ var tempI64;
 // === Body ===
 
 var ASM_CONSTS = {
-  5275728: function() {return Module.webglContextAttributes.premultipliedAlpha;},  
- 5275789: function() {return Module.webglContextAttributes.preserveDrawingBuffer;},  
- 5275853: function() {return Module.webglContextAttributes.powerPreference;},  
- 5275911: function() {Module['emscripten_get_now_backup'] = performance.now;},  
- 5275966: function($0) {performance.now = function() { return $0; };},  
- 5276014: function($0) {performance.now = function() { return $0; };},  
- 5276062: function() {performance.now = Module['emscripten_get_now_backup'];}
+  5276992: function() {return Module.webglContextAttributes.premultipliedAlpha;},  
+ 5277053: function() {return Module.webglContextAttributes.preserveDrawingBuffer;},  
+ 5277117: function() {return Module.webglContextAttributes.powerPreference;},  
+ 5277175: function() {Module['emscripten_get_now_backup'] = performance.now;},  
+ 5277230: function($0) {performance.now = function() { return $0; };},  
+ 5277278: function($0) {performance.now = function() { return $0; };},  
+ 5277326: function() {performance.now = Module['emscripten_get_now_backup'];}
 };
 
 
@@ -2238,47 +2238,6 @@ var ASM_CONSTS = {
       if (Module['extraStackTrace']) js += '\n' + Module['extraStackTrace']();
       return demangleAll(js);
     }
-
-  function _CleanupStalePlayers(roomIdPtr, timeoutSeconds) {
-          const roomId = UTF8ToString(roomIdPtr);
-          const timeoutMs = timeoutSeconds * 1000;
-          
-          console.log("🧹 [CleanupStalePlayers] Cleaning up players older than", timeoutSeconds, "seconds");
-          
-          try {
-              if (!window.database) {
-                  console.error("❌ [CleanupStalePlayers] Firebase database not initialized");
-                  return;
-              }
-              
-              const playersRef = window.database.ref(roomId + '/players');
-              const now = Date.now();
-              
-              playersRef.once('value').then(function(snapshot) {
-                  const players = snapshot.val() || {};
-                  
-                  Object.keys(players).forEach(function(key) {
-                      const player = players[key];
-                      const playerNum = parseInt(key);
-                      
-                      if (player && player.joinedAt) {
-                          const age = now - player.joinedAt;
-                          if (age > timeoutMs) {
-                              console.log("🗑️ [CleanupStalePlayers] Removing stale player:", playerNum, "(age:", Math.floor(age/1000), "s)");
-                              window.database.ref(roomId + '/players/' + playerNum).remove();
-                          }
-                      }
-                  });
-                  
-                  console.log("✅ [CleanupStalePlayers] Cleanup complete");
-              }).catch(function(error) {
-                  console.error("❌ [CleanupStalePlayers] Failed:", error);
-              });
-              
-          } catch (e) {
-              console.error("❌ [CleanupStalePlayers] Error:", e);
-          }
-      }
 
   function _ClearGameRoom(roomIdPtr) {
           const roomId = UTF8ToString(roomIdPtr);
@@ -4967,233 +4926,165 @@ var ASM_CONSTS = {
       }
 
   function _RequestPlayerID(roomIdPtr) {
-      const roomId = UTF8ToString(roomIdPtr);
-      
-      console.log("🔍 [RequestPlayerID] Called with roomId:", roomId);
-      
-      const tryRequest = () => {
-          if (!window.database) {
-              console.warn("⏳ [RequestPlayerID] Database not ready, retrying in 100ms...");
-              setTimeout(tryRequest, 100);
-              return;
-          }
+          const roomId = UTF8ToString(roomIdPtr);
+          console.log("🔍 [RequestPlayerID] Called with roomId:", roomId);
   
-          console.log("✅ [RequestPlayerID] Database ready, starting request");
-          
-          const playersRef = window.database.ref(roomId + '/players');
-          const allocationRef = window.database.ref(roomId + '/allocation');
-          
-          // ★ステップ1: allocation カウンターで順序を保証
-          allocationRef.transaction(function(current) {
-              return (current || 0) + 1;
-          }).then(function(result) {
-              if (!result.committed) {
-                  console.error("❌ [RequestPlayerID] Failed to get allocation number");
+          // small client token for identification in case needed
+          const clientToken = 'tok_' + Math.random().toString(36).substr(2, 9);
+  
+          const tryRequest = () => {
+              if (!window.database) {
+                  console.warn("⏳ [RequestPlayerID] Database not ready, retrying in 100ms...");
+                  setTimeout(tryRequest, 100);
                   return;
               }
-              
-              const allocationNumber = result.snapshot.val();
-              console.log("📋 [RequestPlayerID] Allocation number:", allocationNumber);
-              
-              // ★ステップ2: 古いプレイヤーをクリーンアップ
-              return playersRef.once('value').then(function(snapshot) {
-                  const players = snapshot.val() || {};
-                  const now = Date.now();
-                  const TIMEOUT_MS = 30000;
-                  
-                  const cleanupPromises = [];
-                  Object.keys(players).forEach(function(key) {
-                      const player = players[key];
-                      const playerNum = parseInt(key);
-                      
-                      if (player && player.joinedAt) {
-                          const age = now - player.joinedAt;
-                          if (age > TIMEOUT_MS) {
-                              console.warn("🗑️ [RequestPlayerID] Removing stale player:", playerNum);
-                              cleanupPromises.push(
-                                  window.database.ref(roomId + '/players/' + playerNum).remove()
-                              );
-                          }
-                      }
-                  });
-                  
-                  return Promise.all(cleanupPromises).then(function() {
-                      return { allocationNumber: allocationNumber };
-                  });
-              });
-              
-          }).then(function(data) {
-              const allocationNumber = data.allocationNumber;
-              
-              // ★ステップ3: 空きスロットを検索
-              return playersRef.once('value').then(function(snapshot) {
-                  const players = snapshot.val() || {};
-                  const occupiedSlots = new Set();
-                  
-                  Object.keys(players).forEach(function(key) {
-                      const playerNum = parseInt(key);
-                      if (players[key] && players[key].connected) {
-                          occupiedSlots.add(playerNum);
-                      }
-                  });
   
-                  console.log("🔒 [RequestPlayerID] Occupied slots:", Array.from(occupiedSlots));
+              console.log("✅ [RequestPlayerID] Database ready, trying transactional slot allocation");
   
-                  let assignedID = null;
-                  
-                  // ★交互割り当て (1→17→2→18...)
-                  for (let pairIndex = 0; pairIndex < 16; pairIndex++) {
-                      const teamAId = pairIndex + 1;
-                      const teamBId = pairIndex + 17;
-                      
-                      if (!occupiedSlots.has(teamAId)) {
-                          assignedID = teamAId;
-                          break;
-                      }
-                      
-                      if (!occupiedSlots.has(teamBId)) {
-                          assignedID = teamBId;
-                          break;
-                      }
+              // build candidate order: 1,17,2,18,3,19,...16,32
+              const candidates = [];
+              for (let i = 1; i <= 16; i++) {
+                  candidates.push(i);
+                  candidates.push(i + 16);
+              }
+  
+              const tryCandidate = (index) => {
+                  if (index >= candidates.length) {
+                      console.error("❌ [RequestPlayerID] No available slot found after trying all candidates");
+                      setTimeout(tryRequest, 500);
+                      return;
                   }
   
-                  if (assignedID === null) {
-                      console.error("❌ [RequestPlayerID] Room is full");
-                      assignedID = 1;
-                  }
-  
-                  // ★ステップ4: トランザクションで登録
+                  const assignedID = candidates[index];
                   const playerRef = window.database.ref(roomId + '/players/' + assignedID);
-                  
-                  return playerRef.transaction(function(currentPlayer) {
-                      if (currentPlayer !== null && currentPlayer.connected) {
-                          console.warn("⚠️ [RequestPlayerID] ID", assignedID, "taken, retrying...");
-                          return undefined;
-                      }
-                      
-                      return {
-                          name: "Player" + assignedID,
-                          connected: true,
-                          joinedAt: firebase.database.ServerValue.TIMESTAMP,
-                          allocationNumber: allocationNumber
-                      };
-                      
-                  }).then(function(txResult) {
-                      if (!txResult.committed) {
-                          console.warn("⚠️ [RequestPlayerID] Transaction failed, retrying...");
-                          setTimeout(tryRequest, 100);
-                          return null;
-                      }
-                      
-                      window.myPlayerID = assignedID;
-                      console.log("🎉 [RequestPlayerID] ★★★ ASSIGNED:", assignedID, "★★★");
-                      
-                      playerRef.onDisconnect().remove();
-                      
-                      const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
-                      SendMessage(target, 'OnPlayerIDAssigned', assignedID.toString());
-                      
-                      // ★ステップ5: ホスト選出を試みる (300ms後)
-                      console.log("🏆 [RequestPlayerID] Attempting host selection...");
-                      setTimeout(function() {
-                          const hostRef = window.database.ref(roomId + '/host');
-                          const playersRefForHost = window.database.ref(roomId + '/players');
-                          
-                          window.initializationPromise = playersRefForHost.once('value').then(function(playersSnapshot) {
-                              const players = playersSnapshot.val() || {};
-                              const playerCount = Object.keys(players).length;
-                              
-                              console.log("👥 [Host Selection] Player count:", playerCount);
-                              
-                              return hostRef.once('value').then(function(hostSnapshot) {
-                                  const existingHost = hostSnapshot.val();
-                                  const shouldInitialize = playerCount <= 1 && existingHost === null;
-                                  
-                                  if (shouldInitialize) {
-                                      console.log("🧹 [Host Selection] First player - clearing server...");
-                                      
-                                      const updates = {};
-                                      updates[roomId + '/units'] = null;
-                                      updates[roomId + '/intents'] = null;
-                                      updates[roomId + '/cycle'] = null;
-                                      updates[roomId + '/snapshot'] = null;
-                                      updates[roomId + '/host'] = null;
-                                      updates[roomId + '/control'] = null;
-                                      
-                                      return window.database.ref().update(updates).then(function() {
-                                          console.log("✅ [Host Selection] Server cleared");
-                                          return { initialized: true };
-                                      });
-                                  } else {
-                                      console.log("👥 [Host Selection] Other players exist, skipping init");
-                                      return { initialized: false };
-                                  }
-                              });
-                              
-                          }).then(function(initResult) {
-                              console.log("📊 [Host Selection] Init result:", initResult);
-                              
-                              return hostRef.transaction(function(currentHost) {
-                                  if (currentHost === null) {
-                                      return {
-                                          playerNumber: assignedID,
-                                          timestamp: firebase.database.ServerValue.TIMESTAMP,
-                                          heartbeat: firebase.database.ServerValue.TIMESTAMP
-                                      };
-                                  }
-                                  return undefined;
-                              });
-                              
-                          }).then(function(result) {
-                              if (result.committed) {
-                                  console.log("✅ [Host Selection] Became host:", assignedID);
-                                  
-                                  hostRef.onDisconnect().remove();
-                                  
-                                  if (window.hostHeartbeatInterval) {
-                                      clearInterval(window.hostHeartbeatInterval);
-                                  }
-                                  window.hostHeartbeatInterval = setInterval(function() {
-                                      hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
-                                  }, 3000);
-                                  
-                                  const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
-                                  SendMessage(target, 'OnHostStatusReceived', JSON.stringify({
-                                      isHost: true,
-                                      hostPlayerNumber: assignedID
-                                  }));
-                              } else {
-                                  hostRef.once('value').then(function(snapshot) {
-                                      const host = snapshot.val();
-                                      console.log("ℹ️ [Host Selection] Another host exists:", host);
-                                      const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
-                                      SendMessage(target, 'OnHostStatusReceived', JSON.stringify({
-                                          isHost: false,
-                                          hostPlayerNumber: host ? host.playerNumber : 0
-                                      }));
-                                  });
-                              }
-                              
-                              const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
-                              SendMessage(target, 'OnInitializationComplete', '');
-                              
-                          }).catch(function(error) {
-                              console.error("❌ [Host Selection] Error:", error);
-                          });
-                      }, 300);
-                      
-                      return assignedID;
-                  });
-              });
-              
-          }).catch(function(error) {
-              console.error("❌ [RequestPlayerID] Error:", error);
-              setTimeout(tryRequest, 500);
-          });
-      };
   
-      tryRequest();
-  }
+                  playerRef.transaction(function(current) {
+                      // if slot is free or disconnected, claim it
+                      if (current === null || !current.connected) {
+                          return {
+                              name: 'Player' + assignedID,
+                              connected: true,
+                              joinedAt: firebase.database.ServerValue.TIMESTAMP,
+                              __token: clientToken
+                          };
+                      }
+                      // otherwise, abort (transaction will not commit)
+                      return;
+                  }, function(error, committed, snapshot) {
+                      if (error) {
+                          console.error('[RequestPlayerID] Transaction error for', assignedID, error);
+                          setTimeout(() => tryCandidate(index + 1), 50);
+                          return;
+                      }
+  
+                      if (!committed) {
+                          setTimeout(() => tryCandidate(index + 1), 10);
+                          return;
+                      }
+  
+                      // success
+                      try {
+                          window.myPlayerID = assignedID;
+                          console.log('🎉 [RequestPlayerID] Assigned ID (transaction):', assignedID);
+  
+                          // ensure onDisconnect is set
+                          try {
+                              playerRef.onDisconnect().remove();
+                          } catch (e) { }
+  
+                          // notify Unity
+                          const target = window.unityFirebaseCallbackObjectName || 'NetworkManager';
+                          try { SendMessage(target, 'OnPlayerIDAssigned', assignedID.toString()); } catch (e) { console.warn('SendMessage OnPlayerIDAssigned failed', e); }
+  
+                          // cleanup token field (best-effort)
+                          try {
+                              window.database.ref(roomId + '/players/' + assignedID + '/__token').remove().catch(function(err) {
+                                  console.warn('[RequestPlayerID] Failed to remove __token:', err);
+                              });
+                          } catch (e) { }
+  
+                          // After assignment, try host selection (robust transaction)
+                          setTimeout(function() {
+                              try {
+                                  const hostRef = window.database.ref(roomId + '/host');
+                                  const playersRefForHost = window.database.ref(roomId + '/players');
+  
+                                  window.initializationPromise = playersRefForHost.once('value').then(function(playersSnapshot) {
+                                      const players = playersSnapshot.val() || {};
+                                      const playerCount = Object.keys(players).length;
+  
+                                      return hostRef.once('value').then(function(hostSnapshot) {
+                                          const existingHost = hostSnapshot.val();
+                                          const shouldInitialize = playerCount <= 1 && existingHost === null;
+                                          if (shouldInitialize) {
+                                              const updates = {};
+                                              updates[roomId + '/units'] = null;
+                                              updates[roomId + '/intents'] = null;
+                                              updates[roomId + '/cycle'] = null;
+                                              updates[roomId + '/snapshot'] = null;
+                                              updates[roomId + '/host'] = null;
+                                              updates[roomId + '/control'] = null;
+                                              return window.database.ref().update(updates).then(function() {
+                                                  return { initialized: true };
+                                              });
+                                          }
+                                          return { initialized: false };
+                                      });
+                                  }).then(function(initResult) {
+                                      return hostRef.transaction(function(currentHost) {
+                                          if (currentHost === null) {
+                                              return {
+                                                  playerNumber: assignedID,
+                                                  timestamp: firebase.database.ServerValue.TIMESTAMP,
+                                                  heartbeat: firebase.database.ServerValue.TIMESTAMP
+                                              };
+                                          }
+                                          return undefined;
+                                      });
+                                  }).then(function(hostResult) {
+                                      if (hostResult && hostResult.committed) {
+                                          console.log('[RequestPlayerID] Successfully became host:', assignedID);
+                                          hostRef.onDisconnect().remove();
+                                          if (window.hostHeartbeatInterval) clearInterval(window.hostHeartbeatInterval);
+                                          window.hostHeartbeatInterval = setInterval(function() {
+                                              hostRef.child('heartbeat').set(firebase.database.ServerValue.TIMESTAMP);
+                                          }, 3000);
+  
+                                          const target2 = window.unityFirebaseCallbackObjectName || 'NetworkManager';
+                                          try { SendMessage(target2, 'OnHostStatusReceived', JSON.stringify({ isHost: true, hostPlayerNumber: assignedID })); } catch (e) { }
+                                      } else {
+                                          hostRef.once('value').then(function(snapshot) {
+                                              const host = snapshot.val();
+                                              const target2 = window.unityFirebaseCallbackObjectName || 'NetworkManager';
+                                              try { SendMessage(target2, 'OnHostStatusReceived', JSON.stringify({ isHost: false, hostPlayerNumber: host ? host.playerNumber : 0 })); } catch (e) { }
+                                          });
+                                      }
+  
+                                      const target3 = window.unityFirebaseCallbackObjectName || 'NetworkManager';
+                                      try { SendMessage(target3, 'OnInitializationComplete', ''); } catch (e) { }
+  
+                                  }).catch(function(err) {
+                                      console.error('[RequestPlayerID] Host selection error:', err);
+                                  });
+  
+                              } catch (e) {
+                                  console.error('[RequestPlayerID] Host selection exception:', e);
+                              }
+                          }, 300);
+  
+                      } catch (e) {
+                          console.error('[RequestPlayerID] Post-commit processing error:', e);
+                      }
+  
+                  }, /*applyLocally=*/ false);
+              };
+  
+              // start trying candidates
+              tryCandidate(0);
+          };
+  
+          tryRequest();
+      }
 
   function _SetPlayerPresence(roomIdPtr, playerNumber, playerNamePtr) {
       const roomId = UTF8ToString(roomIdPtr);
@@ -5347,7 +5238,7 @@ var ASM_CONSTS = {
                       const shouldInitialize = playerCount <= 1 && existingHost === null;
                       
                       if (shouldInitialize) {
-                          console.log("🧹 [TryBecomeHost] First player - initializing server...");
+                          console.log("🧹 [TryBecomeHost] First player - initializing server");
                           
                           // ★即座にサーバーをクリア
                           const updates = {};
@@ -5446,51 +5337,66 @@ var ASM_CONSTS = {
       }
 
   function _WriteResetCommand(roomIdPtr, resetJson) {
-          const roomId = UTF8ToString(roomIdPtr);
-          const json = UTF8ToString(resetJson);
+      const roomId = UTF8ToString(roomIdPtr);
+      const json = UTF8ToString(resetJson);
+      
+      console.log("[WriteResetCommand] Writing reset command:", json);
+      
+      try {
+          if (!window.database) {
+              console.error("[WriteResetCommand] Firebase database not initialized");
+              return;
+          }
           
-          console.log("[WriteResetCommand] Writing reset command:", json);
+          const resetRef = window.database.ref(roomId + '/control/reset');
+          const snapshotRef = window.database.ref(roomId + '/snapshot');
+          const playersRef = window.database.ref(roomId + '/players');
+          const hostRef = window.database.ref(roomId + '/host');
           
-          try {
-              if (!window.database) {
-                  console.error("[WriteResetCommand] Firebase database not initialized");
-                  return;
-              }
+          // リセット命令を書き込み
+          resetRef.set(JSON.parse(json)).then(function() {
+              console.log("[WriteResetCommand] Reset command written");
               
-              const resetRef = window.database.ref(roomId + '/control/reset');
-              const snapshotRef = window.database.ref(roomId + '/snapshot');
-              
-              // リセット命令を書き込み
-              resetRef.set(JSON.parse(json)).then(function() {
-                  console.log("[WriteResetCommand] Reset command written");
-                  
-                  // ★追加: snapshot を即座に削除（前のゲーム状態を残さない）
-                  snapshotRef.remove().then(function() {
-                      console.log("[WriteResetCommand] Snapshot cleared");
-                  }).catch(function(err) {
-                      console.warn("[WriteResetCommand] Failed to clear snapshot:", err);
-                  });
-                  
-                  // 5秒後に reset 命令を自動削除
-                  setTimeout(function() {
-                      resetRef.remove().then(function() {
-                          console.log("[WriteResetCommand] Auto-deleted reset command after 5s");
-                      }).catch(function(err) {
-                          console.warn("[WriteResetCommand] Failed to auto-delete:", err);
-                      });
-                  }, 5000);
-                  
-              }).catch(function(error) {
-                  console.error("[WriteResetCommand] Failed to write reset:", error);
+              // snapshot を即座に削除（前のゲーム状態を残さない）
+              snapshotRef.remove().then(function() {
+                  console.log("[WriteResetCommand] Snapshot cleared");
+              }).catch(function(err) {
+                  console.warn("[WriteResetCommand] Failed to clear snapshot:", err);
               });
               
-              // onDisconnect 設定（ホスト切断時に即座に削除）
-              resetRef.onDisconnect().remove();
+              // ★追加: players と host もクリア（ホストがリセットする際に部屋を完全クリア）
+              playersRef.remove().then(function() {
+                  console.log("[WriteResetCommand] Players cleared");
+              }).catch(function(err) {
+                  console.warn("[WriteResetCommand] Failed to clear players:", err);
+              });
               
-          } catch (e) {
-              console.error("[WriteResetCommand] Error:", e);
-          }
+              hostRef.remove().then(function() {
+                  console.log("[WriteResetCommand] Host cleared");
+              }).catch(function(err) {
+                  console.warn("[WriteResetCommand] Failed to clear host:", err);
+              });
+              
+              // 5秒後に reset 命令を自動削除
+              setTimeout(function() {
+                  resetRef.remove().then(function() {
+                      console.log("[WriteResetCommand] Auto-deleted reset command after 5s");
+                  }).catch(function(err) {
+                      console.warn("[WriteResetCommand] Failed to auto-delete:", err);
+                  });
+              }, 5000);
+              
+          }).catch(function(error) {
+              console.error("[WriteResetCommand] Failed to write reset:", error);
+          });
+          
+          // onDisconnect 設定（ホスト切断時に即座に削除）
+          resetRef.onDisconnect().remove();
+          
+      } catch (e) {
+          console.error("[WriteResetCommand] Error:", e);
       }
+  }
 
   function _WriteUnitData(path, jsonData) {
           const pathStr = UTF8ToString(path);
@@ -16063,7 +15969,6 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('fetchSettings');
 }
 var asmLibraryArg = {
-  "CleanupStalePlayers": _CleanupStalePlayers,
   "ClearGameRoom": _ClearGameRoom,
   "ClearHost": _ClearHost,
   "ClearPlayerPresence": _ClearPlayerPresence,
